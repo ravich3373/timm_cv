@@ -3,6 +3,10 @@
 Hacked together by / Copyright 2021, Ross Wightman
 """
 import os
+import torch
+from torch.utils.data import Dataset
+import numpy as np
+from PIL import Image
 
 from torchvision.datasets import CIFAR100, CIFAR10, MNIST, KMNIST, FashionMNIST, ImageFolder
 try:
@@ -59,6 +63,27 @@ def _search_split(root, split):
     return root
 
 
+class MyDataset(Dataset):
+
+    def __init__(self, X_path="X.pt", y_path="y.pt"):
+
+        self.X = torch.load(X_path).squeeze(1)
+        self.y = torch.load(y_path).squeeze(1)
+        self.transform = None
+
+    def __len__(self):
+        return self.X.size(0)
+
+    def __getitem__(self, idx):
+        img =  self.X[idx]#, self.y[idx]
+        img_np = img.permute(1,2,0).numpy()
+        img_int = (((img_np - img_np.min())/(img_np.max()-img_np.min())) * 255).astype(np.uint8)
+        img = Image.fromarray(img_int)
+        if self.transform is not None:
+           img = self.transform(img)
+        return img, self.y[idx]
+
+
 def create_dataset(
         name,
         root,
@@ -103,7 +128,9 @@ def create_dataset(
         Dataset object
     """
     name = name.lower()
-    if name.startswith('torch/'):
+    if name.startswith('cv/'):
+        ds = MyDataset(X_path=f"{root}/{split}/X.pt", y_path=f"{root}/{split}/y.pt")
+    elif name.startswith('torch/'):
         name = name.split('/', 2)[-1]
         torch_kwargs = dict(root=root, download=download, **kwargs)
         if name in _TORCH_BASIC_DS:

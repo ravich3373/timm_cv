@@ -39,6 +39,7 @@ def transforms_noaug_train(
                 mean=torch.tensor(mean),
                 std=torch.tensor(std))
         ]
+        #tfl = [] # ravi remove transforms
     return transforms.Compose(tfl)
 
 
