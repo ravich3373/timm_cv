@@ -25,6 +25,7 @@ from functools import partial
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torchvision.utils
 import yaml
 from torch.nn.parallel import DistributedDataParallel as NativeDDP
@@ -157,6 +158,7 @@ scripting_group.add_argument('--torchcompile', nargs='?', type=str, default=None
 
 # Optimizer parameters
 group = parser.add_argument_group('Optimizer parameters')
+group.add_argument("--focal", default=False, action="store_true", help="Use focal loss.")
 group.add_argument('--opt', default='sgd', type=str, metavar='OPTIMIZER',
                    help='Optimizer (default: "sgd")')
 group.add_argument('--opt-eps', default=None, type=float, metavar='EPSILON',
@@ -355,6 +357,26 @@ group.add_argument('--use-multi-epochs-loader', action='store_true', default=Fal
 group.add_argument('--log-wandb', action='store_true', default=False,
                    help='log training and validation metrics to wandb')
 
+class FocalLoss(nn.Module):
+    '''
+    Multi-class Focal Loss
+    '''
+    def __init__(self, gamma=2, weight=None):
+        super(FocalLoss, self).__init__()
+        self.gamma = gamma
+        self.weight = weight
+        #self.reduction = reduction
+
+    def forward(self, input, target):
+        """
+        input: [N, C], float32
+        target: [N, ], int64
+        """
+        logpt = F.log_softmax(input, dim=1)
+        pt = torch.exp(logpt)
+        logpt = (1-pt)**self.gamma * logpt
+        loss = F.nll_loss(logpt, target, self.weight)
+        return loss
 
 def _parse_args():
     # Do we have a config file to parse?
@@ -695,10 +717,15 @@ def main():
             train_loss_fn = BinaryCrossEntropy(smoothing=args.smoothing, target_threshold=args.bce_target_thresh)
         else:
             train_loss_fn = LabelSmoothingCrossEntropy(smoothing=args.smoothing)
+    elif args.focal:
+        train_loss_fn = FocalLoss()
     else:
         train_loss_fn = nn.CrossEntropyLoss()
     train_loss_fn = train_loss_fn.to(device=device)
-    validate_loss_fn = nn.CrossEntropyLoss().to(device=device)
+    if args.focal:
+        validate_loss_fn = FocalLoss().to(device=device)
+    else:
+        validate_loss_fn = nn.CrossEntropyLoss().to(device=device)
 
     # setup checkpoint saver and eval metric tracking
     eval_metric = args.eval_metric

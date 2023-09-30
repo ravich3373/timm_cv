@@ -2,8 +2,30 @@ Train_r18:
 	python train.py --data-dir ../../dataset/ \
                 --dataset cv/ --train-split \
                 train --val-split validation \
-                --num-classes 43 --model resnet18 \
+                --num-classes 43 --model resnet18 --experiment Train_r18\
                 --img-size 32 --no-aug --no-prefetcher --batch-size 512
+
+
+Train_r18_focal:
+	python train.py --data-dir ../../dataset/ \
+                --dataset cv/ --train-split \
+                train --val-split validation \
+                --num-classes 43 --model resnet18 --experiment Train_r18_focal\
+                --img-size 32 --no-aug --no-prefetcher --batch-size 512 --focal
+
+Train_r18_focal_4:
+	python train.py --data-dir ../../dataset/ \
+                --dataset cv/ --train-split \
+                train --val-split validation \
+                --num-classes 43 --model resnet18 --experiment Train_r18_focal_4\
+                --img-size 32 --no-aug --no-prefetcher --batch-size 512 --focal
+
+Train_r18_focal_8:
+	python train.py --data-dir ../../dataset/ \
+                --dataset cv/ --train-split \
+                train --val-split validation \
+                --num-classes 43 --model resnet18 --experiment Train_r18_focal_8\
+                --img-size 32 --no-aug --no-prefetcher --batch-size 512 --focal
 
 Train_r50:
 	python train.py --data-dir ../../dataset/ \
