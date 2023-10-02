@@ -38,6 +38,7 @@ from timm.models import create_model, safe_model_name, resume_checkpoint, load_c
 from timm.optim import create_optimizer_v2, optimizer_kwargs
 from timm.scheduler import create_scheduler_v2, scheduler_kwargs
 from timm.utils import ApexScaler, NativeScaler
+from vision_transformer import vit_tiny
 
 try:
     from apex import amp
@@ -472,7 +473,10 @@ def main():
         in_chans = args.input_size[0]
 
     if args.dino_ckpt is not None:
-        model = create_model(args.model)
+        if "vit" in args.dino_ckpt:
+            model = vit_tiny()
+        else:
+            model = create_model(args.model)
         if "resnet" in args.dino_ckpt:
             emb_dim = model.fc.weight.shape[1]
             model.fc = nn.Identity()
