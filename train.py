@@ -102,6 +102,7 @@ group.add_argument('--class-map', default='', type=str, metavar='FILENAME',
 group = parser.add_argument_group('Model parameters')
 group.add_argument('--model', default='resnet50', type=str, metavar='MODEL',
                    help='Name of model to train (default: "resnet50")')
+group.add_argument("--dino_ckpt", default=None, type=str, help="dino pretrained checkpoint path.")
 group.add_argument('--pretrained', action='store_true', default=False,
                    help='Start with pretrained version of specified network (if avail)')
 group.add_argument('--initial-checkpoint', default='', type=str, metavar='PATH',
@@ -357,11 +358,29 @@ group.add_argument('--use-multi-epochs-loader', action='store_true', default=Fal
 group.add_argument('--log-wandb', action='store_true', default=False,
                    help='log training and validation metrics to wandb')
 
+
+class LinearClassifier(nn.Module):
+    """Linear layer to train on top of frozen features"""
+    def __init__(self, dim, num_labels=43):
+        super(LinearClassifier, self).__init__()
+        self.num_labels = num_labels
+        self.linear = nn.Linear(dim, num_labels)
+        self.linear.weight.data.normal_(mean=0.0, std=0.01)
+        self.linear.bias.data.zero_()
+
+    def forward(self, x):
+        # flatten
+        x = x.view(x.size(0), -1)
+
+        # linear layer
+        return self.linear(x)
+
+
 class FocalLoss(nn.Module):
     '''
     Multi-class Focal Loss
     '''
-    def __init__(self, gamma=2, weight=None):
+    def __init__(self, gamma=1.2, weight=None):
         super(FocalLoss, self).__init__()
         self.gamma = gamma
         self.weight = weight
@@ -377,6 +396,16 @@ class FocalLoss(nn.Module):
         logpt = (1-pt)**self.gamma * logpt
         loss = F.nll_loss(logpt, target, self.weight)
         return loss
+
+
+class Identity_class(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.a = nn.Identity()
+    
+    def forward(self, x):
+        return self.a(x)
+
 
 def _parse_args():
     # Do we have a config file to parse?
@@ -442,21 +471,43 @@ def main():
     elif args.input_size is not None:
         in_chans = args.input_size[0]
 
-    model = create_model(
-        args.model,
-        pretrained=args.pretrained,
-        in_chans=in_chans,
-        num_classes=args.num_classes,
-        drop_rate=args.drop,
-        drop_path_rate=args.drop_path,
-        drop_block_rate=args.drop_block,
-        global_pool=args.gp,
-        bn_momentum=args.bn_momentum,
-        bn_eps=args.bn_eps,
-        scriptable=args.torchscript,
-        checkpoint_path=args.initial_checkpoint,
-        **args.model_kwargs,
-    )
+    if args.dino_ckpt is not None:
+        model = create_model(args.model)
+        if "resnet" in args.dino_ckpt:
+            emb_dim = model.fc.weight.shape[1]
+            model.fc = nn.Identity()
+        elif "convnext" in args.dino_ckpt:
+            emb_dim = model.head.fc.weight.shape[1]
+            model.head.fc = nn.Identity()
+            model.norm_pre = model.head
+            model.head = Identity_class()
+        state_dict = torch.load(args.dino_ckpt, map_location="cpu")
+        state_dict = state_dict["teacher"]
+        # remove `module.` prefix
+        state_dict = {k.replace("module.", ""): v for k, v in state_dict.items()}
+        # remove `backbone.` prefix induced by multicrop wrapper
+        state_dict = {k.replace("backbone.", ""): v for k, v in state_dict.items()}
+        msg = model.load_state_dict(state_dict, strict=False)
+        print('Dino weights found at {} and loaded with msg: {}'.format(args.dino_ckpt, msg))
+        linear_classifier = LinearClassifier(emb_dim, num_labels=args.num_classes)
+        model = nn.Sequential(model, linear_classifier)
+        model.num_classes = args.num_classes
+    else:
+        model = create_model(
+            args.model,
+            pretrained=args.pretrained,
+            in_chans=in_chans,
+            num_classes=args.num_classes,
+            drop_rate=args.drop,
+            drop_path_rate=args.drop_path,
+            drop_block_rate=args.drop_block,
+            global_pool=args.gp,
+            bn_momentum=args.bn_momentum,
+            bn_eps=args.bn_eps,
+            scriptable=args.torchscript,
+            checkpoint_path=args.initial_checkpoint,
+            **args.model_kwargs,
+        )
     if args.head_init_scale is not None:
         with torch.no_grad():
             model.get_classifier().weight.mul_(args.head_init_scale)
